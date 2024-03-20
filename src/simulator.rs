@@ -1,3 +1,5 @@
+use std::default;
+
 use nalgebra::Vector3;
 
 use crate::web::{Particle, SilkStrand, Spiderweb};
@@ -23,9 +25,19 @@ pub struct Simulator {
     pub sim_time: f64,
     gravity: Vector3<f64>,
     drag_coefficient: f64,
+    pub wind_fn: fn(Vector3<f64>) -> Vector3<f64>,
+    bugs: Vec<Particle>,
 }
 
 impl Simulator {
+    fn default_wind_fn(particle_pos: Vector3<f64>) -> Vector3<f64> {
+        // Simple wind to blow the web around a bit depending on position
+        let wind_strength = 0.1;
+        let wind_dir = Vector3::new(1.0, 0.0, 0.0);
+        wind_dir * (particle_pos.y * wind_strength)
+        
+    }
+
     pub fn new(timestep: f64, web: Spiderweb) -> Self {
         Self {
             web,
@@ -33,7 +45,14 @@ impl Simulator {
             sim_time: 0.0,
             gravity: Vector3::new(0.0, -0.01, 0.0),
             drag_coefficient: 0.47,
+            wind_fn: Self::default_wind_fn,
+            bugs: Vec::new(),
         }
+    }
+
+    pub fn add_bug(&mut self, position: Vector3<f64>, velocity: Vector3<f64>, mass: f64) {
+        let bug = Particle::new(position, velocity, mass, false);
+        self.bugs.push(bug);
     }
 
     pub fn step(&mut self) {
@@ -71,6 +90,12 @@ impl Simulator {
                 total_force += force;
             }
 
+            let wind_force = (self.wind_fn)(particle.position);
+            total_force += wind_force;
+
+            let drag_force = particle.velocity * -self.drag_coefficient;
+            total_force += drag_force;
+
             let acceleration = total_force / particle.mass;
             let new_position = 2.0 * particle.position - particle.prev_position + acceleration * dt2;
             new_positions[i] = new_position;
@@ -79,6 +104,9 @@ impl Simulator {
         }
 
         for (i, particle) in self.web.particles.iter_mut().enumerate() {
+            if particle.fixed {
+                continue;
+            }
             particle.prev_position = particle.position;
             particle.position = new_positions[i];
             particle.velocity = new_velocities[i];

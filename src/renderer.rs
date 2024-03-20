@@ -98,7 +98,66 @@ impl Renderer {
         }
     }
 
+    unsafe fn set_uniform_color(&self, color: [GLfloat; 4]) {
+        let color_str = CString::new("inputColor").unwrap();
+        let color_pos = gl::GetUniformLocation(self.shader_program, color_str.as_ptr());
+        gl::Uniform4f(color_pos, color[0], color[1], color[2], color[3]);
+    }
+
+    unsafe fn draw_line(&self, vertices : &[GLfloat; 6]) {
+        gl::BufferData(gl::ARRAY_BUFFER,
+                       (vertices.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
+                       vertices.as_ptr() as *const gl::types::GLvoid,
+                       gl::STATIC_DRAW);
+        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+        gl::DrawArrays(gl::LINES, 0, 2);
+    }
+
+    fn draw_xyz_lines(&self) {
+        let xyz_vertices = [
+            // x-axis (red)
+             [-1.0, 0.0, 0.0,
+              1.0, 0.0, 0.0,],
+            // y-axis (green)
+             [0.0, -1.0, 0.0,
+             0.0,  1.0, 0.0,],
+            // z-axis (blue)
+             [0.0, 0.0, -1.0,
+             0.0, 0.0,  1.0,],
+        ];
+
+        let colours = [
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+        ];
+        
+        unsafe {
+            for (i, vertices) in xyz_vertices.iter().enumerate() {
+                self.set_uniform_color(colours[i]);
+                self.draw_line(vertices);
+            }
+        }
+    }
+
+    fn draw_web(&self, web: &Spiderweb) {
+        for strand in &web.strands {
+            let pos = web.particles[strand.start].position;
+            let end_pos = web.particles[strand.end].position;
+            let vertices = [
+                pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
+                end_pos.x as GLfloat, end_pos.y as GLfloat, end_pos.z as GLfloat,
+            ];
+
+            unsafe {
+                self.set_uniform_color([1.0, 1.0, 1.0, 1.0]);
+                self.draw_line(&vertices);
+            }
+        }
+    }
+
     pub fn draw(&self, web: &Spiderweb) {
+        
         let mut vao: GLuint = 0;
         let mut vbo: GLuint = 0;
 
@@ -108,30 +167,16 @@ impl Renderer {
 
             gl::GenBuffers(1, &mut vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-
             gl::EnableVertexAttribArray(0);
-            gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
-        }
-        for strand in &web.strands {
-            let pos = web.particles[strand.start].position;
-            let end_pos = web.particles[strand.end].position;
-            let vertices: Vec<GLfloat> = vec![
-                pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
-                end_pos.x as GLfloat, end_pos.y as GLfloat, end_pos.z as GLfloat,
-            ];
 
-            unsafe {
-                gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-                gl::BufferData(gl::ARRAY_BUFFER,
-                               (vertices.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
-                               vertices.as_ptr() as *const gl::types::GLvoid,
-                               gl::STATIC_DRAW);
-
-                gl::DrawArrays(gl::LINES, 0, 2);
-            }
+            gl::Clear(gl::COLOR_BUFFER_BIT);
         }
+
+        self.draw_web(web);
+        self.draw_xyz_lines();
 
         unsafe {
+            gl::DisableVertexAttribArray(0);
             gl::BindBuffer(gl::ARRAY_BUFFER, 0);
             gl::BindVertexArray(0);
         }
