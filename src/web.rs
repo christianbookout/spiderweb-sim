@@ -1,5 +1,5 @@
 extern crate nalgebra as na;
-use na::{Vector3, Rotation3};
+use na::Vector3;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Particle {
