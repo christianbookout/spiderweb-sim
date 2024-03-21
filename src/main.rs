@@ -1,9 +1,7 @@
 extern crate glfw;
-use nalgebra::Vector3;
 use renderer::Renderer;
 use simulator::Simulator;
 use glfw::{Action, Context, GlfwReceiver, Key, PWindow};
-use web::{Particle, SilkStrand, Spiderweb};
 
 pub mod renderer;
 pub mod simulator;
@@ -20,7 +18,6 @@ pub fn open_window(glfw: &mut glfw::Glfw) -> (PWindow, GlfwReceiver<(f64, glfw::
 
     let (mut window, events) = glfw.create_window(800, 600, "Spiderweb Simulator", glfw::WindowMode::Windowed)
         .expect("Couldn't make the window");
-
     window.make_current();
     window.set_key_polling(true);
 
@@ -38,13 +35,17 @@ fn main() {
     let (mut window, events) = open_window(&mut glfw);
     let mut renderer = Renderer::new();
     let web = webgen::construct_web();
-    let mut simulator = Simulator::new(0.1, web);
+    let mut simulator = Simulator::new(0.01, web);
 
     renderer.init();
 
     unsafe {
         gl::UseProgram(renderer.shader_program);
     }
+    // window.set_scroll_callback((move |_, _, y| {
+    //     renderer.zoom *= 1.0 + y * 1.0;
+    //     println!("Scrolling, new scroll is {}", renderer.zoom);
+    // }));
 
     let mut started = false;
     while !window.should_close() {
@@ -57,6 +58,10 @@ fn main() {
                 glfw::WindowEvent::Key(Key::S, _, Action::Press, _) => {
                     started = !started;
                 },
+                glfw::WindowEvent::Scroll(_, y) => {
+                    println!("Scrolling");
+                    renderer.zoom += y * 0.01;
+                },
                 _ => {}
             }
         }
@@ -64,12 +69,12 @@ fn main() {
             continue;
         }
 
+        simulator.step();
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            simulator.step();
-            renderer.draw(simulator.get_web());
-            window.set_title(&format!("Spiderweb Simulator - Simulation time: {:.2}", simulator.sim_time));
+            renderer.draw(&mut simulator, &window);
         }
+        window.set_title(&format!("Spiderweb Simulator - Simulation time: {:.2}", simulator.sim_time));
 
         window.swap_buffers();
     }

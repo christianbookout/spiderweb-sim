@@ -2,10 +2,12 @@ extern crate gl;
 extern crate glfw;
 
 use std::ffi::CString;
-use crate::web::Spiderweb;
+use crate::simulator::Simulator;
+use crate::web::{Particle, Spiderweb};
 use std::fs::File;
 use std::io::prelude::*;
 use gl::types::*;
+use nalgebra as na;
 
 fn load_shader_source(path: &str) -> Result<String, std::io::Error> {
     let mut file = File::open(path)?;
@@ -75,12 +77,14 @@ fn create_shader_program(vertex_path: &str, fragment_path: &str) -> Result<GLuin
 
 pub struct Renderer {
     pub shader_program: GLuint,
+    pub zoom: f64,
 }
 
 impl Renderer {
     pub fn new() -> Self {
         Self {
             shader_program: 0,
+            zoom: 3.0,
         }
     }
 
@@ -155,30 +159,70 @@ impl Renderer {
             }
         }
     }
+    // Draw bugs as little green points
+    fn draw_bugs(&self, bugs: &Vec<Particle>) {
+        for bug in bugs {
+            let pos = bug.position;
+            let gl_pos = [
+                pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
+            ];
+            unsafe {
+                // Draw point at gl_pos
+                self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
+                gl::PointSize(5.0);
+                gl::BufferData(gl::ARRAY_BUFFER,
+                               (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
+                               gl_pos.as_ptr() as *const gl::types::GLvoid,
+                               gl::STATIC_DRAW);
+                gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+                gl::DrawArrays(gl::POINTS, 0, 1);
 
-    pub fn draw(&self, web: &Spiderweb) {
+            }
+        }
+    }
+
+    pub unsafe fn draw(&self, sim: &mut Simulator, window : &glfw::Window) {
         
+        let web = sim.get_web();
         let mut vao: GLuint = 0;
         let mut vbo: GLuint = 0;
 
-        unsafe {
-            gl::GenVertexArrays(1, &mut vao);
-            gl::BindVertexArray(vao);
+        gl::GenVertexArrays(1, &mut vao);
+        gl::BindVertexArray(vao);
 
-            gl::GenBuffers(1, &mut vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-            gl::EnableVertexAttribArray(0);
+        gl::GenBuffers(1, &mut vbo);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+        gl::EnableVertexAttribArray(0);
 
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-        }
+        gl::Clear(gl::COLOR_BUFFER_BIT);
+
+        let aspect_ratio = window.get_size().0 as f32 / window.get_size().1 as f32;
+        let fov: f32 = 45.0f32.to_radians() / self.zoom as f32;
+        let near_plane = 0.1;
+        let far_plane = 100.0;
+
+        let projection_matrix = na::Perspective3::new(aspect_ratio, fov, near_plane, far_plane).to_homogeneous();
+        let view_matrix = na::Isometry3::look_at_rh(
+            &na::Point3::new(5.0, 5.0, 8.0),
+            &na::Point3::new(0.0, 0.0, 0.0),
+            &na::Vector3::new(0.0, 1.0, 0.0),
+        ).to_homogeneous();
+        let model_matrix: na::Matrix4<f32> = na::Matrix4::identity();
+
+        let mvp = projection_matrix * view_matrix * model_matrix;
+
+        let mvp_str = CString::new("MVP").unwrap();
+
+        let mvp_pos = gl::GetUniformLocation(self.shader_program, mvp_str.as_ptr());
+
+        gl::UniformMatrix4fv(mvp_pos, 1, gl::FALSE, mvp.as_ptr());
 
         self.draw_web(web);
         self.draw_xyz_lines();
+        self.draw_bugs(&sim.bugs);
 
-        unsafe {
-            gl::DisableVertexAttribArray(0);
-            gl::BindBuffer(gl::ARRAY_BUFFER, 0);
-            gl::BindVertexArray(0);
-        }
+        gl::DisableVertexAttribArray(0);
+        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
+        gl::BindVertexArray(0);
     }
 }
