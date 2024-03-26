@@ -1,6 +1,8 @@
 extern crate glfw;
+use nalgebra::Vector3;
 use renderer::Renderer;
 use simulator::Simulator;
+use rand::Rng;
 use glfw::{Action, Context, GlfwReceiver, Key, PWindow};
 
 pub mod renderer;
@@ -42,11 +44,7 @@ fn main() {
     unsafe {
         gl::UseProgram(renderer.shader_program);
     }
-    // window.set_scroll_callback((move |_, _, y| {
-    //     renderer.zoom *= 1.0 + y * 1.0;
-    //     println!("Scrolling, new scroll is {}", renderer.zoom);
-    // }));
-
+    
     let mut started = false;
     while !window.should_close() {
         glfw.poll_events();
@@ -58,24 +56,46 @@ fn main() {
                 glfw::WindowEvent::Key(Key::S, _, Action::Press, _) => {
                     started = !started;
                 },
-                glfw::WindowEvent::Scroll(_, y) => {
-                    println!("Scrolling");
-                    renderer.zoom += y * 0.01;
+                glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
+                    started = false;
+                    simulator = Simulator::new(0.01, webgen::construct_web());
+                    renderer.reset()
+                },
+                glfw::WindowEvent::Key(Key::B, _, Action::Press, _) => {
+                    let mut rnd = rand::thread_rng();
+                    let particles = &simulator.get_web().particles;
+                    let rand_pos = Vector3::new(rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0));
+                    let rand_web_particle = particles[rnd.gen_range(0..particles.len())];
+                    let velocity = (rand_web_particle.position - rand_pos).normalize() * 0.1;
+                    simulator.add_bug(rand_pos, velocity, 1.0);
+                },
+                glfw::WindowEvent::Key(Key::Left, _, Action::Press, _) => {
+                    renderer.rotate(10.0);
+                },
+                glfw::WindowEvent::Key(Key::Right, _, Action::Press, _) => {
+                    renderer.rotate(-10.0);
+                },
+                glfw::WindowEvent::Key(Key::Equal, _, Action::Press, _) => {
+                    renderer.zoom += 0.3;
+                    renderer.zoom = renderer.zoom.min(10.0);
+                },
+                glfw::WindowEvent::Key(Key::Minus, _, Action::Press, _) => {
+                    renderer.zoom -= 0.3;
+                    renderer.zoom = renderer.zoom.max(1.0);
                 },
                 _ => {}
             }
         }
-        if !started {
-            continue;
+        if started {
+            simulator.step();
         }
-
-        simulator.step();
+        window.set_title(&format!("Spiderweb Simulator - Simulation time: {:.2}", simulator.sim_time));
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
             renderer.draw(&mut simulator, &window);
         }
-        window.set_title(&format!("Spiderweb Simulator - Simulation time: {:.2}", simulator.sim_time));
-
         window.swap_buffers();
+
+
     }
 }

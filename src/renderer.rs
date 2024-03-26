@@ -3,7 +3,7 @@ extern crate glfw;
 
 use std::ffi::CString;
 use crate::simulator::Simulator;
-use crate::web::{Particle, Spiderweb};
+use crate::web::{Particle, ParticleType, Spiderweb};
 use std::fs::File;
 use std::io::prelude::*;
 use gl::types::*;
@@ -78,6 +78,7 @@ fn create_shader_program(vertex_path: &str, fragment_path: &str) -> Result<GLuin
 pub struct Renderer {
     pub shader_program: GLuint,
     pub zoom: f64,
+    pub rotation: f64,
 }
 
 impl Renderer {
@@ -85,6 +86,7 @@ impl Renderer {
         Self {
             shader_program: 0,
             zoom: 3.0,
+            rotation: 135.0,
         }
     }
 
@@ -95,11 +97,27 @@ impl Renderer {
             Ok(program) => {
                 self.shader_program = program;
                 println!("Shader program created successfully");
+                let mut range = [0.0, 0.0];
+                unsafe {
+                    gl::GetFloatv(gl::LINE_WIDTH_RANGE, range.as_mut_ptr());
+                }
+                println!("Supported line width range: {} to {}", range[0], range[1]);
             },
             Err(e) => {
                 eprintln!("Shader program creation failed: {}", e);
             }
         }
+    }
+
+    pub fn reset(&mut self) {
+        unsafe {
+            gl::DeleteProgram(self.shader_program);
+        }
+        self.init();
+    }
+
+    pub fn rotate(&mut self, angle: f64) {
+        self.rotation += angle;
     }
 
     unsafe fn set_uniform_color(&self, color: [GLfloat; 4]) {
@@ -108,7 +126,8 @@ impl Renderer {
         gl::Uniform4f(color_pos, color[0], color[1], color[2], color[3]);
     }
 
-    unsafe fn draw_line(&self, vertices : &[GLfloat; 6]) {
+    unsafe fn draw_line(&self, vertices : &[GLfloat; 6], width: f32) {
+        gl::LineWidth(width);
         gl::BufferData(gl::ARRAY_BUFFER,
                        (vertices.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
                        vertices.as_ptr() as *const gl::types::GLvoid,
@@ -139,12 +158,12 @@ impl Renderer {
         unsafe {
             for (i, vertices) in xyz_vertices.iter().enumerate() {
                 self.set_uniform_color(colours[i]);
-                self.draw_line(vertices);
+                self.draw_line(vertices, 1.0);
             }
         }
     }
 
-    fn draw_web(&self, web: &Spiderweb) {
+    unsafe fn draw_web(&self, web: &Spiderweb) {
         for strand in &web.strands {
             let pos = web.particles[strand.start].position;
             let end_pos = web.particles[strand.end].position;
@@ -153,31 +172,45 @@ impl Renderer {
                 end_pos.x as GLfloat, end_pos.y as GLfloat, end_pos.z as GLfloat,
             ];
 
-            unsafe {
-                self.set_uniform_color([1.0, 1.0, 1.0, 1.0]);
-                self.draw_line(&vertices);
+            self.set_uniform_color([1.0, 1.0, 1.0, 1.0]);
+            self.draw_line(&vertices, 10.0);
+        }
+        for particle in &web.particles {
+            if particle.particle_type != ParticleType::Bug {
+                continue;
             }
+            let pos = particle.position;
+            let gl_pos = [
+                pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
+            ];
+            self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
+
+            gl::PointSize(50.0);
+            gl::BufferData(gl::ARRAY_BUFFER,
+                            (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
+                            gl_pos.as_ptr() as *const gl::types::GLvoid,
+                            gl::STATIC_DRAW);
+            gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+            gl::DrawArrays(gl::POINTS, 0, 1);
         }
     }
     // Draw bugs as little green points
-    fn draw_bugs(&self, bugs: &Vec<Particle>) {
+    unsafe fn draw_bugs(&self, bugs: &Vec<Particle>) {
         for bug in bugs {
             let pos = bug.position;
             let gl_pos = [
                 pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
             ];
-            unsafe {
-                // Draw point at gl_pos
-                self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
-                gl::PointSize(5.0);
-                gl::BufferData(gl::ARRAY_BUFFER,
-                               (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
-                               gl_pos.as_ptr() as *const gl::types::GLvoid,
-                               gl::STATIC_DRAW);
-                gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
-                gl::DrawArrays(gl::POINTS, 0, 1);
+            // Draw point at gl_pos
+            self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
 
-            }
+            gl::PointSize(50.0);
+            gl::BufferData(gl::ARRAY_BUFFER,
+                            (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
+                            gl_pos.as_ptr() as *const gl::types::GLvoid,
+                            gl::STATIC_DRAW);
+            gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+            gl::DrawArrays(gl::POINTS, 0, 1);
         }
     }
 
@@ -202,8 +235,14 @@ impl Renderer {
         let far_plane = 100.0;
 
         let projection_matrix = na::Perspective3::new(aspect_ratio, fov, near_plane, far_plane).to_homogeneous();
+        let dist_from_center = 8.0; // Radius of the circle around the Y-axis
+        let rotation_radians = self.rotation.to_radians(); // Convert rotation angle to radians
+
+        // Calculate new camera position for circular rotation around Y-axis
+        let x = dist_from_center * rotation_radians.cos() as f32;
+        let z = dist_from_center * rotation_radians.sin() as f32;
         let view_matrix = na::Isometry3::look_at_rh(
-            &na::Point3::new(5.0, 5.0, 8.0),
+            &na::Point3::new(x, 5.0, z),
             &na::Point3::new(0.0, 0.0, 0.0),
             &na::Vector3::new(0.0, 1.0, 0.0),
         ).to_homogeneous();

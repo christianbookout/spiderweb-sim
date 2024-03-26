@@ -1,6 +1,6 @@
 use nalgebra::Vector3;
 
-use crate::web::{Particle, SilkStrand, Spiderweb};
+use crate::web::{Particle, SilkStrand, Spiderweb, ParticleType};
 
 pub fn construct_web() -> Spiderweb {
     let mut web = Spiderweb::new();
@@ -18,7 +18,7 @@ pub fn construct_web() -> Spiderweb {
         for i in 0..particles_per_ring {
             let angle = 2.0 * std::f64::consts::PI * (i as f64) / (particles_per_ring as f64);
             let position = Vector3::new(center.x + radius * angle.cos(), center.y + radius * angle.sin(), 0.0);
-            let particle = Particle::new(position, Vector3::zeros(), mass, ring == particles_per_ring-1);
+            let particle = Particle::new(position, Vector3::zeros(), mass, ring == particles_per_ring-1, ParticleType::Silk);
             web.push_particle(particle);
         }
     }

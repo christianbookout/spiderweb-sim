@@ -2,22 +2,30 @@ extern crate nalgebra as na;
 use na::Vector3;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
+pub enum ParticleType {
+    Bug,
+    Silk,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Particle {
     pub position: Vector3<f64>,
     pub prev_position: Vector3<f64>,
     pub velocity: Vector3<f64>,
     pub mass: f64,
     pub fixed: bool,
+    pub particle_type: ParticleType,
 }
 
 impl Particle {
-    pub fn new(position: Vector3<f64>, velocity: Vector3<f64>, mass: f64, fixed: bool) -> Self {
+    pub fn new(position: Vector3<f64>, velocity: Vector3<f64>, mass: f64, fixed: bool, particle_type : ParticleType) -> Self {
         Particle {
             position,
             prev_position: position,
             velocity,
             mass,
             fixed,
+            particle_type
         }
     }
 }

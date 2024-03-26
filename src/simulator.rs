@@ -1,6 +1,6 @@
 use nalgebra::Vector3;
 
-use crate::web::{Particle, SilkStrand, Spiderweb};
+use crate::web::{Particle, ParticleType, SilkStrand, Spiderweb};
 
 fn calculate_spring_force(
     particle: &Particle,
@@ -28,9 +28,18 @@ pub struct Simulator {
 }
 
 impl Simulator {
-    fn zero_wind_fn(&self, _particle_pos: Vector3<f64>) -> Vector3<f64> {
-        Vector3::zeros()
+    pub fn new(timestep: f64, web: Spiderweb) -> Self {
+        Self {
+            web,
+            timestep,
+            sim_time: 0.0,
+            gravity: Vector3::new(0.0, -0.1, -0.1),
+            drag_coefficient: 0.47,
+            wind_fn: Self::loopy_wind,
+            bugs: Vec::new(),
+        }
     }
+
     fn default_wind_fn(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
         // Simple wind to blow the web around a bit depending on position
         let wind_strength = 0.1;
@@ -39,21 +48,24 @@ impl Simulator {
         
     }
 
-    pub fn new(timestep: f64, web: Spiderweb) -> Self {
-        Self {
-            web,
-            timestep,
-            sim_time: 0.0,
-            gravity: Vector3::new(0.0, -0.1, 0.0),
-            drag_coefficient: 0.47,
-            wind_fn: Self::default_wind_fn,
-            bugs: Vec::new(),
-        }
+    fn loopy_wind(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
+        // Wind that blows in a loop
+        let wind_strength = 0.01;
+        let z_pos = particle_pos.z.max(0.1);
+        let wind_dir = Vector3::new(particle_pos.y/z_pos, -particle_pos.x/z_pos, particle_pos.z/4.0);
+        wind_dir * wind_strength
     }
 
     pub fn add_bug(&mut self, position: Vector3<f64>, velocity: Vector3<f64>, mass: f64) {
-        let bug = Particle::new(position, velocity, mass, false);
+        let bug = Particle::new(position, velocity, mass, false, ParticleType::Bug);
         self.bugs.push(bug);
+    }
+
+    fn calculate_verlet(&self, particle: &Particle, total_force: Vector3<f64>) -> (Vector3<f64>, Vector3<f64>) {
+        let acceleration = total_force / particle.mass;
+        let new_position = 2.0 * particle.position - particle.prev_position + acceleration * self.timestep * self.timestep;
+        let new_velocity = (new_position - particle.prev_position) / (2.0 * self.timestep);
+        (new_position, new_velocity)
     }
 
     fn update_particle(&self, particle: &Particle) -> (Vector3<f64>, Vector3<f64>) {
@@ -90,22 +102,92 @@ impl Simulator {
 
         let drag_force = particle.velocity * -self.drag_coefficient;
         total_force += drag_force;
+        
+        self.calculate_verlet(particle, total_force)
+    }
 
-        let acceleration = total_force / particle.mass;
-        let new_position = 2.0 * particle.position - particle.prev_position + acceleration * self.timestep * self.timestep;
-        let new_velocity = (new_position - particle.prev_position) / (2.0 * self.timestep);
-        (new_position, new_velocity)
+    // Stick a bug to a web by replacing a strand of the web with a strand connecting
+    // from one particle to the bug, and from the bug to the other particle.
+    fn stick_to_web(&mut self, bug_index : usize, strand_index : usize) {
+        let mut bug = self.bugs[bug_index];
+        bug.velocity = Vector3::zeros();
+        self.web.push_particle(bug);
+        let strand = self.web.strands.swap_remove(strand_index);
+        let start_particle = self.web.particles[strand.start];
+        let end_particle = self.web.particles[strand.end];
+        let strand_vector = end_particle.position - start_particle.position;
+
+        // Want the new strands to be the same length as the original strand when added
+        // to the web, so project the bug's position onto the original strand to get the
+        // correct lengths.
+        let mut start_len = (start_particle.position - bug.position).dot(&strand_vector) / strand_vector.norm();
+        start_len = start_len.clamp(0.0, strand.length);
+
+        let new_start_strand = SilkStrand::new(strand.start, bug_index, start_len, strand.stiffness, strand.damping);
+        let new_end_strand = SilkStrand::new(bug_index, strand.end, strand.length - start_len, strand.stiffness, strand.damping);
+
+        self.web.push_strand(new_start_strand);
+        self.web.push_strand(new_end_strand);
+    }
+
+    fn detect_collisions(&mut self) {
+        let bug_radius = 0.1;
+        let mut to_stick = Vec::new();
+
+        for (bug_index, bug) in self.bugs.iter().enumerate() {
+            for (strand_index, strand) in self.web.strands.iter().enumerate() {
+                let start_particle = &self.web.particles[strand.start];
+                let end_particle = &self.web.particles[strand.end];
+
+                // Preliminary check: if the bug is too far from both endpoints of the strand, skip
+                let max_distance = strand.length + bug_radius;
+                let distance_to_start = (bug.position - start_particle.position).norm();
+                let distance_to_end = (bug.position - end_particle.position).norm();
+
+                if distance_to_start > max_distance && distance_to_end > max_distance {
+                    continue; // Skip this strand as the bug is too far away
+                }
+
+                // Calculate closest point on strand to bug
+                let strand_vector = end_particle.position - start_particle.position;
+                let bug_to_start = bug.position - start_particle.position;
+                let t = bug_to_start.dot(&strand_vector) / strand_vector.norm_squared();
+                let t_clamped = t.clamp(0.0, 1.0); // Clamp t to remain within the strand segment
+                let closest_point = start_particle.position + strand_vector * t_clamped;
+
+                // Check for collision (distance less than or equal to bug radius)
+                let distance = (closest_point - bug.position).norm();
+                if distance <= bug_radius {
+                    // Record the bug and strand indexes for sticking
+                    to_stick.push((bug_index, strand_index));
+                }
+            }
+        }
+
+        // Stick bugs to web for each detected collision
+        for (bug_index, strand_index) in to_stick.into_iter().rev() {
+            self.stick_to_web(bug_index, strand_index);
+            self.bugs.remove(bug_index);
+        }
     }
 
     pub fn step(&mut self) {
         self.sim_time += self.timestep;
+        self.detect_collisions();
 
         let mut new_positions = vec![Vector3::zeros(); self.web.particles.len()];
         let mut new_velocities = vec![Vector3::zeros(); self.web.particles.len()];
+        let mut new_bug_positions = vec![Vector3::zeros(); self.bugs.len()];
+        let mut new_bug_velocities = vec![Vector3::zeros(); self.bugs.len()];
         for (i, particle) in self.web.particles.iter().enumerate() {
             let (new_position, new_velocity) = self.update_particle(particle);
             new_positions[i] = new_position;
             new_velocities[i] = new_velocity;
+        }
+
+        for (i, bug) in self.bugs.iter().enumerate() {
+            new_bug_positions[i] = bug.position + bug.velocity * self.timestep;
+            new_bug_velocities[i] = bug.velocity;
         }
 
         for (i, particle) in self.web.particles.iter_mut().enumerate() {
@@ -115,6 +197,12 @@ impl Simulator {
             particle.prev_position = particle.position;
             particle.position = new_positions[i];
             particle.velocity = new_velocities[i];
+        }
+
+        for (i, bug) in self.bugs.iter_mut().enumerate() {
+            bug.prev_position = bug.position;
+            bug.position = new_bug_positions[i];
+            bug.velocity = new_bug_velocities[i];
         }
     }
 
