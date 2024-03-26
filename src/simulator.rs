@@ -50,7 +50,7 @@ impl Simulator {
 
     fn loopy_wind(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
         // Wind that blows in a loop
-        let wind_strength = 0.01;
+        let wind_strength = 0.001;
         let z_pos = particle_pos.z.max(0.1);
         let wind_dir = Vector3::new(particle_pos.y/z_pos, -particle_pos.x/z_pos, particle_pos.z/4.0);
         wind_dir * wind_strength
@@ -108,30 +108,29 @@ impl Simulator {
 
     // Stick a bug to a web by replacing a strand of the web with a strand connecting
     // from one particle to the bug, and from the bug to the other particle.
-    fn stick_to_web(&mut self, bug_index : usize, strand_index : usize) {
+    fn stick_to_web(&mut self, bug_index: usize, strand_index: usize) {
         let mut bug = self.bugs[bug_index];
         bug.velocity = Vector3::zeros();
         self.web.push_particle(bug);
+        let new_bug_idx = self.web.particles.len() - 1;
         let strand = self.web.strands.swap_remove(strand_index);
         let start_particle = self.web.particles[strand.start];
         let end_particle = self.web.particles[strand.end];
         let strand_vector = end_particle.position - start_particle.position;
 
-        // Want the new strands to be the same length as the original strand when added
-        // to the web, so project the bug's position onto the original strand to get the
-        // correct lengths.
-        let mut start_len = (start_particle.position - bug.position).dot(&strand_vector) / strand_vector.norm();
-        start_len = start_len.clamp(0.0, strand.length);
+        let start_len = (start_particle.position - bug.position).dot(&strand_vector) / strand_vector.norm_squared();
+        let start_len = start_len.clamp(0.0, strand.length);
+        let end_len = strand.length - start_len;
 
-        let new_start_strand = SilkStrand::new(strand.start, bug_index, start_len, strand.stiffness, strand.damping);
-        let new_end_strand = SilkStrand::new(bug_index, strand.end, strand.length - start_len, strand.stiffness, strand.damping);
+        let new_start_strand = SilkStrand::new(strand.start, new_bug_idx, start_len, strand.stiffness, strand.damping);
+        let new_end_strand = SilkStrand::new(new_bug_idx, strand.end, end_len, strand.stiffness, strand.damping);
 
-        self.web.push_strand(new_start_strand);
-        self.web.push_strand(new_end_strand);
+        self.web.strands.push(new_start_strand);
+        self.web.strands.push(new_end_strand);
     }
 
     fn detect_collisions(&mut self) {
-        let bug_radius = 0.1;
+        let bug_radius = 0.03;
         let mut to_stick = Vec::new();
 
         for (bug_index, bug) in self.bugs.iter().enumerate() {
@@ -139,35 +138,38 @@ impl Simulator {
                 let start_particle = &self.web.particles[strand.start];
                 let end_particle = &self.web.particles[strand.end];
 
-                // Preliminary check: if the bug is too far from both endpoints of the strand, skip
                 let max_distance = strand.length + bug_radius;
                 let distance_to_start = (bug.position - start_particle.position).norm();
                 let distance_to_end = (bug.position - end_particle.position).norm();
 
+                // If the bug is too far from the silk strand then a collision cannot possible occur
+                // and we don't need to do the math
                 if distance_to_start > max_distance && distance_to_end > max_distance {
-                    continue; // Skip this strand as the bug is too far away
+                    continue;
                 }
 
-                // Calculate closest point on strand to bug
                 let strand_vector = end_particle.position - start_particle.position;
                 let bug_to_start = bug.position - start_particle.position;
                 let t = bug_to_start.dot(&strand_vector) / strand_vector.norm_squared();
-                let t_clamped = t.clamp(0.0, 1.0); // Clamp t to remain within the strand segment
+                let t_clamped = t.clamp(0.0, 1.0);
                 let closest_point = start_particle.position + strand_vector * t_clamped;
 
-                // Check for collision (distance less than or equal to bug radius)
                 let distance = (closest_point - bug.position).norm();
+                // A collision occurred
                 if distance <= bug_radius {
-                    // Record the bug and strand indexes for sticking
                     to_stick.push((bug_index, strand_index));
                 }
             }
         }
 
         // Stick bugs to web for each detected collision
-        for (bug_index, strand_index) in to_stick.into_iter().rev() {
-            self.stick_to_web(bug_index, strand_index);
-            self.bugs.remove(bug_index);
+        for (bug_index, strand_index) in to_stick.iter() {
+            self.stick_to_web(*bug_index, *strand_index);
+        }
+        // Need to reverse the list, otherwise we run into index issues
+        // (since we went front-to-back to find the bugs, we will go back-to-front to remove them)
+        for (bug_index, _) in to_stick.iter().rev() {
+            self.bugs.remove(*bug_index);
         }
     }
 

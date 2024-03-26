@@ -79,6 +79,7 @@ pub struct Renderer {
     pub shader_program: GLuint,
     pub zoom: f64,
     pub rotation: f64,
+    pub camera_pos: na::Point3<f32>
 }
 
 impl Renderer {
@@ -87,6 +88,7 @@ impl Renderer {
             shader_program: 0,
             zoom: 3.0,
             rotation: 135.0,
+            camera_pos: na::Point3::new(0.0, 5.0, 8.0)
         }
     }
 
@@ -139,13 +141,13 @@ impl Renderer {
     fn draw_xyz_lines(&self) {
         let xyz_vertices = [
             // x-axis (red)
-             [-1.0, 0.0, 0.0,
+             [0.0, 0.0, 0.0,
               1.0, 0.0, 0.0,],
             // y-axis (green)
-             [0.0, -1.0, 0.0,
+             [0.0, 0.0, 0.0,
              0.0,  1.0, 0.0,],
             // z-axis (blue)
-             [0.0, 0.0, -1.0,
+             [0.0, 0.0, 0.0,
              0.0, 0.0,  1.0,],
         ];
 
@@ -161,6 +163,22 @@ impl Renderer {
                 self.draw_line(vertices, 1.0);
             }
         }
+    }
+
+    unsafe fn draw_bug(&self, bug: &Particle) {
+        let pos = bug.position;
+        let gl_pos = [
+            pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
+        ];
+        self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
+        
+        gl::PointSize(10.0);
+        gl::BufferData(gl::ARRAY_BUFFER,
+                        (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
+                        gl_pos.as_ptr() as *const gl::types::GLvoid,
+                        gl::STATIC_DRAW);
+        gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
+        gl::DrawArrays(gl::POINTS, 0, 1);
     }
 
     unsafe fn draw_web(&self, web: &Spiderweb) {
@@ -179,42 +197,17 @@ impl Renderer {
             if particle.particle_type != ParticleType::Bug {
                 continue;
             }
-            let pos = particle.position;
-            let gl_pos = [
-                pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
-            ];
-            self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
-
-            gl::PointSize(50.0);
-            gl::BufferData(gl::ARRAY_BUFFER,
-                            (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
-                            gl_pos.as_ptr() as *const gl::types::GLvoid,
-                            gl::STATIC_DRAW);
-            gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
-            gl::DrawArrays(gl::POINTS, 0, 1);
+            self.draw_bug(particle)
         }
     }
     // Draw bugs as little green points
     unsafe fn draw_bugs(&self, bugs: &Vec<Particle>) {
         for bug in bugs {
-            let pos = bug.position;
-            let gl_pos = [
-                pos.x as GLfloat, pos.y as GLfloat, pos.z as GLfloat,
-            ];
-            // Draw point at gl_pos
-            self.set_uniform_color([0.0, 1.0, 0.0, 1.0]);
-
-            gl::PointSize(50.0);
-            gl::BufferData(gl::ARRAY_BUFFER,
-                            (gl_pos.len() * std::mem::size_of::<GLfloat>()) as gl::types::GLsizeiptr,
-                            gl_pos.as_ptr() as *const gl::types::GLvoid,
-                            gl::STATIC_DRAW);
-            gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 0, std::ptr::null());
-            gl::DrawArrays(gl::POINTS, 0, 1);
+            self.draw_bug(bug)
         }
     }
 
-    pub unsafe fn draw(&self, sim: &mut Simulator, window : &glfw::Window) {
+    pub unsafe fn draw(&mut self, sim: &mut Simulator, window : &glfw::Window) {
         
         let web = sim.get_web();
         let mut vao: GLuint = 0;
@@ -241,8 +234,10 @@ impl Renderer {
         // Calculate new camera position for circular rotation around Y-axis
         let x = dist_from_center * rotation_radians.cos() as f32;
         let z = dist_from_center * rotation_radians.sin() as f32;
+        self.camera_pos.x = x;
+        self.camera_pos.z = z;
         let view_matrix = na::Isometry3::look_at_rh(
-            &na::Point3::new(x, 5.0, z),
+            &self.camera_pos,
             &na::Point3::new(0.0, 0.0, 0.0),
             &na::Vector3::new(0.0, 1.0, 0.0),
         ).to_homogeneous();
@@ -256,8 +251,8 @@ impl Renderer {
 
         gl::UniformMatrix4fv(mvp_pos, 1, gl::FALSE, mvp.as_ptr());
 
-        self.draw_web(web);
         self.draw_xyz_lines();
+        self.draw_web(web);
         self.draw_bugs(&sim.bugs);
 
         gl::DisableVertexAttribArray(0);
