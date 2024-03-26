@@ -2,7 +2,36 @@ use nalgebra::Vector3;
 
 use crate::web::{Particle, SilkStrand, Spiderweb, ParticleType};
 
-pub fn construct_web() -> Spiderweb {
+/// Initial radii and frame construction
+pub fn stage_1(mut spiderweb: &Spiderweb) {
+
+}
+
+/// Additional radii are filled into the space between the initial radii
+pub fn stage_2(mut spiderweb: &Spiderweb) {
+
+}
+
+/// Construction of the first loop of the capture spiral
+pub fn stage_3(mut spiderweb: &Spiderweb) {
+
+}
+
+/// 
+pub fn stage_4(mut spiderweb: &Spiderweb) {
+
+}
+
+pub fn realistic_web() -> Spiderweb {
+    let web = &Spiderweb::new();
+    stage_1(web);
+    stage_2(web);
+    stage_3(web);
+    stage_4(web);
+    web.clone()
+}
+
+pub fn simple_web() -> Spiderweb {
     let mut web = Spiderweb::new();
 
     let num_rings = 5; 

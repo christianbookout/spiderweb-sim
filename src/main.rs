@@ -36,7 +36,7 @@ fn main() {
     let mut glfw = glfw::init_no_callbacks().unwrap();
     let (mut window, events) = open_window(&mut glfw);
     let mut renderer = Renderer::new();
-    let web = webgen::construct_web();
+    let web = webgen::simple_web();
     let timestep = 0.05;
     let mut simulator = Simulator::new(timestep, web);
 
@@ -59,7 +59,7 @@ fn main() {
                 },
                 glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
                     started = false;
-                    simulator = Simulator::new(timestep, webgen::construct_web());
+                    simulator = Simulator::new(timestep, webgen::simple_web());
                     renderer.reset()
                 },
                 glfw::WindowEvent::Key(Key::B, _, Action::Press, _) => {
