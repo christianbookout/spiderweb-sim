@@ -111,22 +111,7 @@ impl Simulator {
     fn stick_to_web(&mut self, bug_index: usize, strand_index: usize) {
         let mut bug = self.bugs[bug_index];
         bug.velocity = Vector3::zeros();
-        self.web.push_particle(bug);
-        let new_bug_idx = self.web.particles.len() - 1;
-        let strand = self.web.strands.swap_remove(strand_index);
-        let start_particle = self.web.particles[strand.start];
-        let end_particle = self.web.particles[strand.end];
-        let strand_vector = end_particle.position - start_particle.position;
-
-        let start_len = (start_particle.position - bug.position).dot(&strand_vector) / strand_vector.norm_squared();
-        let start_len = start_len.clamp(0.0, strand.length);
-        let end_len = strand.length - start_len;
-
-        let new_start_strand = SilkStrand::new(strand.start, new_bug_idx, start_len, strand.stiffness, strand.damping);
-        let new_end_strand = SilkStrand::new(new_bug_idx, strand.end, end_len, strand.stiffness, strand.damping);
-
-        self.web.strands.push(new_start_strand);
-        self.web.strands.push(new_end_strand);
+        self.web.insert_particle_into_web(bug, strand_index, true);
     }
 
     fn detect_collisions(&mut self) {
