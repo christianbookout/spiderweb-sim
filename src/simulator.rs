@@ -40,16 +40,16 @@ impl Simulator {
         }
     }
 
+    /// Simple wind to blow the web around a bit depending on position and sins
     fn default_wind_fn(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
-        // Simple wind to blow the web around a bit depending on position
         let wind_strength = 0.1;
         let wind_dir = Vector3::new(0.8 *(self.sim_time).sin(), 0.05 * (self.sim_time * 0.1).sin(), 0.1 * (self.sim_time * 0.3).sin());
         wind_dir * (particle_pos.y * wind_strength)
         
     }
 
+    /// Wind that blows in a loop, blowing greater when closer to the z-axis
     fn loopy_wind(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
-        // Wind that blows in a loop
         let wind_strength = 0.001;
         let z_pos = particle_pos.z.max(0.1);
         let wind_dir = Vector3::new(particle_pos.y/z_pos, -particle_pos.x/z_pos, particle_pos.z/4.0);

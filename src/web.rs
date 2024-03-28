@@ -15,6 +15,8 @@ pub struct Particle {
     pub mass: f64,
     pub fixed: bool,
     pub particle_type: ParticleType,
+    pub lifespan: f64,
+    pub time_alive: f64,
 }
 
 impl Particle {
@@ -25,7 +27,9 @@ impl Particle {
             velocity,
             mass,
             fixed,
-            particle_type
+            particle_type,
+            lifespan: f64::INFINITY,
+            time_alive: 0.0,
         }
     }
 }
@@ -81,7 +85,6 @@ impl Spiderweb {
         let strand = self.strands.swap_remove(strand_idx);
         let start_particle = self.particles[strand.start];
         let end_particle = self.particles[strand.end];
-        let strand_vector = end_particle.position - start_particle.position;
 
         let start_len;
         let end_len;
@@ -106,7 +109,7 @@ impl Spiderweb {
     /// distance to the silk strand using projection. 
     /// 
     /// Time complexity of O(# of strands)
-    pub fn get_closest_strand(self, pos : Vector3<f64>) -> usize {
+    pub fn get_closest_strand(&self, pos : Vector3<f64>) -> usize {
         let mut closest_strand_dist = f64::INFINITY;
         let mut closest_strand_idx = 0;
         for (idx, strand) in self.strands.iter().enumerate(){

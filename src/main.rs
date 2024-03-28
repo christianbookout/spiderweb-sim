@@ -4,6 +4,7 @@ use renderer::Renderer;
 use simulator::Simulator;
 use rand::Rng;
 use glfw::{Action, Context, GlfwReceiver, Key, PWindow};
+use webgen::Webgen;
 
 pub mod renderer;
 pub mod simulator;
@@ -36,8 +37,8 @@ fn main() {
     let mut glfw = glfw::init_no_callbacks().unwrap();
     let (mut window, events) = open_window(&mut glfw);
     let mut renderer = Renderer::new();
-    let web = webgen::simple_web();
-    let timestep = 0.05;
+    let web = Webgen::new().realistic_web();
+    let timestep = 0.025;
     let mut simulator = Simulator::new(timestep, web);
 
     renderer.init();
@@ -59,8 +60,7 @@ fn main() {
                 },
                 glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
                     started = false;
-                    simulator = Simulator::new(timestep, webgen::simple_web());
-                    renderer.reset()
+                    simulator = Simulator::new(timestep, Webgen::new().realistic_web());
                 },
                 glfw::WindowEvent::Key(Key::B, _, Action::Press, _) => {
                     let mut rnd = rand::thread_rng();
