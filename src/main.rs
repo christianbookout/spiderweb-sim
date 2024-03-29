@@ -1,9 +1,11 @@
 extern crate glfw;
+use std::sync::mpsc::Receiver;
+
 use nalgebra::Vector3;
 use renderer::Renderer;
 use simulator::Simulator;
 use rand::Rng;
-use glfw::{Action, Context, GlfwReceiver, Key, PWindow};
+use glfw::{Action, Context, Key, Window};
 use webgen::Webgen;
 
 pub mod renderer;
@@ -12,7 +14,7 @@ pub mod web;
 pub mod webgen;
 
 
-pub fn open_window(glfw: &mut glfw::Glfw) -> (PWindow, GlfwReceiver<(f64, glfw::WindowEvent)>) {
+pub fn open_window(glfw: &mut glfw::Glfw) -> (Window, Receiver<(f64, glfw::WindowEvent)>) {
     // Set the OpenGL version to 3.3
     glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
     glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
@@ -34,7 +36,7 @@ pub fn open_window(glfw: &mut glfw::Glfw) -> (PWindow, GlfwReceiver<(f64, glfw::
 }
 
 fn main() {
-    let mut glfw = glfw::init_no_callbacks().unwrap();
+    let mut glfw: glfw::Glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
     let (mut window, events) = open_window(&mut glfw);
     let mut renderer = Renderer::new();
     let web = Webgen::new().realistic_web();
@@ -68,7 +70,7 @@ fn main() {
                     let rand_pos = Vector3::new(rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0));
                     let rand_web_particle = particles[rnd.gen_range(0..particles.len())];
                     let velocity = (rand_web_particle.position - rand_pos).normalize() * 0.1;
-                    simulator.add_bug(rand_pos, velocity, 1.0);
+                    simulator.add_bug(rand_pos, velocity, 0.2);
                 },
                 glfw::WindowEvent::Key(Key::Left, _, Action::Press, _) => {
                     renderer.rotate(10.0);
@@ -96,7 +98,5 @@ fn main() {
             renderer.draw(&mut simulator, &window);
         }
         window.swap_buffers();
-
-
     }
 }
