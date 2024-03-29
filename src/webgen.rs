@@ -29,25 +29,20 @@ struct Genes {
     function_type: bool,
     influence_factor: f64,
     sub_radii_bias: (f64, f64, f64, f64),
+    first_radial_point_offset: f64,
+    radial_point_offset: f64,
+    deviation_value: f64,
 } 
-
-impl Genes {
-    pub fn new(num_first_radii: usize, phase_angle_offset: f64, variability_factor: (f64, f64), direction_biases: (f64, f64, f64, f64), function_type: bool, influence_factor: f64, sub_radii_bias : (f64, f64, f64, f64)) -> Self {
-        Genes {
-            num_first_radii,
-            phase_angle_offset,
-            variability_factor,
-            direction_biases,
-            function_type,
-            influence_factor,
-            sub_radii_bias,
-        }
-    }
-}
 
 pub struct Webgen {
     web : Spiderweb,
     genes : Genes,
+    /// The fixed radii connecting the web to the environment
+    base_radii : Vec<usize>,
+    /// A list of all radii in the web (excluding the base radii)
+    all_radii : Vec<usize>,
+    /// A list of all radial (capture) points from the center to the end
+    radial_points : Vec<usize>,
 }
 
 impl Webgen {
@@ -55,14 +50,20 @@ impl Webgen {
         Webgen {
             web : Spiderweb::new(),
             genes : Genes {
-                num_first_radii: 5,
+                num_first_radii: 3,
                 phase_angle_offset: 60.0,
                 variability_factor: (-5.0, 5.0),
-                direction_biases: (1.0, 0.1, 0.1, 0.1),
+                direction_biases: (0.1, 0.1, 0.1, 1.0),
                 function_type: false,
                 influence_factor: 0.5,  
-                sub_radii_bias: (10.0, 10.0, 10.0, 15.0), 
+                sub_radii_bias: (30.0, 30.0, 30.0, 15.0), 
+                first_radial_point_offset: 0.04,
+                radial_point_offset: 0.002,
+                deviation_value: 0.02,
             },
+            base_radii : Vec::new(),
+            all_radii : Vec::new(),
+            radial_points : Vec::new(),
         }
     }
     fn new_particle(&mut self, pos : Vector3<f64>) -> usize {
@@ -75,10 +76,11 @@ impl Webgen {
         (self.web.particles[a].position - self.web.particles[b].position).norm()
     }
 
-    fn new_strand(&mut self, a : usize, b : usize) {
+    fn new_strand(&mut self, a : usize, b : usize) -> usize {
         let len = self.get_len(a, b);
         let strand = SilkStrand::new(a, b, len, STIFFNESS, DAMPING);
         self.web.push_strand(strand);
+        self.web.strands.len() - 1
     }
 
     fn interpolate_bias(&self, angle: f64) -> f64 {
@@ -100,17 +102,23 @@ impl Webgen {
         bias_start + (bias_end - bias_start) * interpolation
     }
 
+    fn new_base_strand(&mut self, b: usize) {
+        let further_particle = self.new_particle(self.web.particles[b].position * 2.0);
+        self.web.particles[further_particle].fixed = true;
+        self.new_strand(b, further_particle);
+    }
+
     /// Initial radii and frame construction
-    fn stage_1(&mut self, genes: &Genes) {
+    fn stage_1(&mut self) {
         let center = self.new_particle(Vector3::new(0.0, 0.0, 0.0));
-        let base_angle = 90.0 - genes.phase_angle_offset;
+        let base_angle = 90.0 - self.genes.phase_angle_offset;
         let mut cur_angle = base_angle;
         let mut rand = thread_rng();
-        let spacing = 360.0 / genes.num_first_radii as f64;
+        let spacing = 360.0 / self.genes.num_first_radii as f64;
         let mut prev_particle = center;
-        let start_particle = center;
-        for i in 0..genes.num_first_radii {
-            let rand_offset = rand.gen_range(genes.variability_factor.0 .. genes.variability_factor.1);
+        let mut start_particle = center;
+        for i in 0..self.genes.num_first_radii {
+            let rand_offset = rand.gen_range(self.genes.variability_factor.0 .. self.genes.variability_factor.1);
             cur_angle += rand_offset + spacing;
             let bias = self.interpolate_bias(cur_angle);
             let base_radius = 1.0;
@@ -123,8 +131,12 @@ impl Webgen {
             let len = self.get_len(center, particle);
             let strand = SilkStrand::new(center, particle, len, STIFFNESS, DAMPING);
             self.web.push_strand(strand);
+            self.base_radii.push(particle);
             if i > 0 {
                 self.new_strand(prev_particle, particle);
+            } else {
+                // When i is at 0, we need to connect the last particle to the first
+                start_particle = particle;
             }
             prev_particle = particle;
         }
@@ -140,11 +152,13 @@ impl Webgen {
     }
 
     /// Additional radii are filled into the space between the initial radii
-    fn stage_2(&mut self, genes: &Genes) {
+    fn stage_2(&mut self) {
         // For every radii given, place intermediate particles between the radii
-        let mut cur_angle = 90.0 - genes.phase_angle_offset;
-        for i in 1..genes.num_first_radii + 1 {
-            let next_idx = if i == genes.num_first_radii { 1 } else { i + 1 };
+        let mut cur_angle = 90.0 - self.genes.phase_angle_offset;
+        for i in 1..self.genes.num_first_radii + 1 {
+            self.all_radii.push(i);
+            
+            let next_idx = if i == self.genes.num_first_radii { 1 } else { i + 1 };
             let angle_between_points = self.angle_btwn_points(i, next_idx);
             let angle_to_next = cur_angle + angle_between_points;
             let start_angle = cur_angle;
@@ -171,6 +185,7 @@ impl Webgen {
                 let ratio = (cur_angle - start_angle) / angle_between_points;
                 let new_pos = Vector3::lerp(&self.web.particles[i].position, &self.web.particles[next_idx].position, ratio);
                 let particle = self.new_particle(new_pos);
+                self.all_radii.push(particle);
                 let len = self.get_len(0, particle);
                 let strand = SilkStrand::new(0, particle, len, STIFFNESS, DAMPING);
 
@@ -178,33 +193,92 @@ impl Webgen {
                 self.web.insert_particle_into_web(self.web.particles[particle], closest_strand, true);
 
                 self.web.push_strand(strand);
-                
             }
+        }
+        for &i in &self.base_radii.clone() {
+            self.new_base_strand(i);
         }
     }
 
     /// Construction of the first loop of the capture spiral
-    fn stage_3(&mut self, genes: &Genes) {
+    fn stage_3(&mut self) {
+        let mut radii_magnitude = self.genes.first_radial_point_offset;
+        let start_radii = [self.all_radii[0]];
+        for (indx, &i) in self.all_radii.clone().iter().chain(start_radii.iter()).enumerate() {
+            let point = self.web.particles[i].position.normalize() * radii_magnitude;
+            let particle = self.new_particle(point);
 
+            let closest_strand = self.web.get_closest_strand(point);
+            self.web.insert_particle_into_web(self.web.particles[particle], closest_strand, false);
+            if indx > 0 {
+                self.new_strand(particle, particle-1);
+            }
+            self.radial_points.push(particle);
+            radii_magnitude += self.genes.radial_point_offset;
+        }
     }
 
     /// 
-    fn stage_4(&mut self, genes: &Genes) {
+    fn stage_4(&mut self) {
+        let first_part = self.web.particles[self.radial_points[0]];
+        let last_part = self.web.particles[self.radial_points[self.radial_points.len() - 1]];
+        let mut last_dist = (first_part.position - last_part.position).norm();
+        let mut has_flipped = false;
+        let mut just_flipped = false;
+        let base_size = self.radial_points.len() as i32 - 1;
+        // This is set to (cur point idx - 1) when we flip, then decremented by 1 for every new point
+        let mut last_dist_particle_indx: i32 = 0;
+        let mut num_iters = 0;
+        let mut sign = 1;
+        loop {
+            num_iters += 1;
+            if has_flipped {
+                last_dist_particle_indx += 1 * sign;
+            }
+            if last_dist_particle_indx < 0 {
+                break;
+            }
+            let i = self.radial_points[last_dist_particle_indx as usize];
+            let last_particle_pos = self.web.particles[i].position;
+            let dir = last_particle_pos.normalize();
+            let new_dir = last_dist * dir; // TODO add random offset
+            let new_dist = new_dir.norm() + thread_rng().gen_range(-self.genes.deviation_value..self.genes.deviation_value);
+            let new_pos = last_particle_pos + new_dir;
 
+            let radii_pos = self.web.particles[self.all_radii[i % base_size as usize]].position;
+            if new_pos.norm() > radii_pos.norm() {
+                if just_flipped {
+                    break;
+                }
+                sign *= -1;
+                has_flipped = true;
+                just_flipped = true;
+                last_dist_particle_indx -= 1;
+                continue;
+            }
+            just_flipped = false;
+
+            let particle = self.new_particle(new_pos);
+            self.radial_points.push(particle);
+
+            let closest_strand = self.web.get_closest_strand(new_pos);
+            self.web.insert_particle_into_web(self.web.particles[particle], closest_strand, false);
+            self.new_strand(particle, particle - 1);
+            
+            last_dist = new_dist;
+            if !has_flipped {
+                last_dist_particle_indx += 1;
+            }
+        }
+        println!("num iters: {}", num_iters);
     }
 
     pub fn realistic_web(&mut self) -> Spiderweb {
         self.web = Spiderweb::new();
-        let stages: Vec<Box<dyn FnMut(&mut Self, &Genes)>> = vec![
-            Box::new(|webgen, genes| webgen.stage_1(genes)),
-            Box::new(|webgen, genes| webgen.stage_2(genes)),
-            Box::new(|webgen, genes| webgen.stage_3(genes)),
-            Box::new(|webgen, genes| webgen.stage_4(genes)),
-        ];
-
-        for mut stage in stages {
-            stage(self, &self.genes.clone());
-        }
+        self.stage_1();
+        self.stage_2();
+        self.stage_3();
+        self.stage_4();
         self.web.clone()
     }
 
