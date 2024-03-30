@@ -1,6 +1,7 @@
 extern crate glfw;
 use std::sync::mpsc::Receiver;
 
+use imgui::{self, im_str};
 use nalgebra::Vector3;
 use renderer::Renderer;
 use simulator::Simulator;
@@ -24,7 +25,8 @@ pub fn open_window(glfw: &mut glfw::Glfw) -> (Window, Receiver<(f64, glfw::Windo
     let (mut window, events) = glfw.create_window(800, 600, "Spiderweb Simulator", glfw::WindowMode::Windowed)
         .expect("Couldn't make the window");
     window.make_current();
-    window.set_key_polling(true);
+    window.set_all_polling(true); // 1.42
+
 
     gl::load_with(|symbol| window.get_proc_address(symbol) as *const _);
 
@@ -38,39 +40,105 @@ pub fn open_window(glfw: &mut glfw::Glfw) -> (Window, Receiver<(f64, glfw::Windo
 fn main() {
     let mut glfw: glfw::Glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
     let (mut window, events) = open_window(&mut glfw);
+
+    let mut imgui = imgui::Context::create();
+    imgui.set_ini_filename(None);
+
+    let imgui_renderer = imgui_opengl_renderer::Renderer::new(&mut imgui, |s| window.get_proc_address(s));
+    let platform = imgui_glfw_support::GlfwPlatform::init(&mut imgui);
+
     let mut renderer = Renderer::new();
     let web = Webgen::new().realistic_web();
     let timestep = 0.025;
     let mut simulator = Simulator::new(timestep, web);
 
     renderer.init();
-
+    let (width, height) = window.get_size();
+    imgui.io_mut().display_size = [width as f32, height as f32];
+    imgui.io_mut().config_flags.insert(imgui::ConfigFlags::NAV_ENABLE_KEYBOARD);
+    imgui.io_mut().config_flags.insert(imgui::ConfigFlags::NAV_ENABLE_SET_MOUSE_POS);
+    
     unsafe {
         gl::UseProgram(renderer.shader_program);
     }
-    
+
+    let (window_width, window_height) = window.get_size();
+    let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
+    let scale_x = framebuffer_width as f32 / window_width as f32;
+    let scale_y = framebuffer_height as f32 / window_height as f32;
+
+    imgui.io_mut().display_framebuffer_scale = [scale_x, scale_y];
+
     let mut started = false;
+
     while !window.should_close() {
         glfw.poll_events();
-        for (_, event) in glfw::flush_messages(&events) {
-            match event {
-                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
-                    window.set_should_close(true)
-                },
-                glfw::WindowEvent::Key(Key::S, _, Action::Press, _) => {
-                    started = !started;
-                },
-                glfw::WindowEvent::Key(Key::R, _, Action::Press, _) => {
+
+        platform.prepare_frame(imgui.io_mut(), &mut window).expect("Failed to start frame");
+
+        let ui = imgui.frame();
+
+
+        let (window_width, window_height) = window.get_size();
+        let controls_window_size = [200.0, window_height as f32 - 20.0];
+        let controls_window_pos = [10.0, 10.0];
+        let info_window_size = [200.0, 200.0];
+        let info_window_pos = [
+            (window_width as f32 - info_window_size[0]) - 10.0,
+            (window_height as f32 - info_window_size[1]) - 10.0,
+        ];
+
+        imgui::Window::new(im_str!("Simulation Controls"))
+            .size(controls_window_size, imgui::Condition::Always)
+            .position(controls_window_pos, imgui::Condition::Always)
+            .build(&ui, || {
+
+                ui.checkbox(im_str!("Simulation Running"), &mut started);
+
+                if ui.button(im_str!("Reset"), [100.0, 20.0]) {
                     started = false;
                     simulator = Simulator::new(timestep, Webgen::new().realistic_web());
-                },
-                glfw::WindowEvent::Key(Key::B, _, Action::Press, _) => {
+                }
+                if ui.button(im_str!("Add Bug"), [100.0, 20.0]) {
                     let mut rnd = rand::thread_rng();
                     let particles = &simulator.get_web().particles;
                     let rand_pos = Vector3::new(rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0));
                     let rand_web_particle = particles[rnd.gen_range(0..particles.len())];
                     let velocity = (rand_web_particle.position - rand_pos).normalize() * 0.1;
-                    simulator.add_bug(rand_pos, velocity, 0.2);
+                    simulator.add_bug(rand_pos, velocity, 2.0);
+                }
+                // slider
+                //ui.slider_float(im_str!("Wind Strength"), &mut simulator.wind_strength, 0.0, 0.1).build();
+            });
+        // TODO correct fps calculation
+        let actual_fps = 1.0 / ui.io().delta_time;
+        imgui::Window::new(im_str!("Simulation Info"))
+            .size(info_window_size, imgui::Condition::Always)
+            .position(info_window_pos, imgui::Condition::Always)
+            .build(&ui, || {
+                ui.text(im_str!("Timestep: {}", timestep));
+                ui.text(im_str!("Particles: {}", simulator.get_web().particles.len()));
+                ui.text(im_str!("Strands: {}", simulator.get_web().strands.len()));
+                ui.text(im_str!("Bugs: {}", simulator.bugs.len()));
+                ui.text(im_str!("Simulation Time: {}", simulator.sim_time));
+                ui.text(im_str!("FPS: {:.1}", actual_fps));
+                ui.text(im_str!("Zoom: {:.1}", renderer.zoom / 3.0));
+            });
+            
+        unsafe {
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            renderer.draw(&mut simulator, &window);
+        }
+
+        platform.prepare_render(&ui, &mut window);
+        imgui_renderer.render(ui);
+        
+                
+        for (_, event) in glfw::flush_messages(&events) {
+            platform.handle_event(imgui.io_mut(), &window, &event);
+            match event {
+                glfw::WindowEvent::Key(Key::Escape, _, Action::Press, _) => {
+                    window.set_should_close(true)
                 },
                 glfw::WindowEvent::Key(Key::Left, _, Action::Press, _) => {
                     renderer.rotate(10.0);
@@ -92,11 +160,7 @@ fn main() {
         if started {
             simulator.step();
         }
-        window.set_title(&format!("Spiderweb Simulator - Simulation time: {:.2}", simulator.sim_time));
-        unsafe {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            renderer.draw(&mut simulator, &window);
-        }
+        window.set_title("Spiderweb Simulator");
         window.swap_buffers();
     }
 }
