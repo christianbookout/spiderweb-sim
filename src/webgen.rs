@@ -17,9 +17,9 @@ use crate::web::{Particle, SilkStrand, Spiderweb, ParticleType};
 * Gene 10 - 
 * Gene 11 - 
 */
-const MASS : f64 = 0.1;
-const STIFFNESS : f64 = 1.0;
-const DAMPING : f64 = 0.2;
+const MASS : f64 = 1.0;
+const STIFFNESS : f64 = 1000.0;
+const DAMPING : f64 = 10.0;
 #[derive(Clone)]
 struct Genes {
     num_first_radii: usize,
@@ -177,7 +177,7 @@ impl Webgen {
                     _ => unreachable!(),
                 };
 
-                if cur_angle + bias > angle_to_next {
+                if cur_angle + bias + 5.0 > angle_to_next {
                     break;
                 }
                 cur_angle += bias;
@@ -195,6 +195,7 @@ impl Webgen {
                 self.web.push_strand(strand);
             }
         }
+        // Connect all of the base radii to fixed points (anchors)
         for &i in &self.base_radii.clone() {
             self.new_base_strand(i);
         }
@@ -216,6 +217,8 @@ impl Webgen {
             self.radial_points.push(particle);
             radii_magnitude += self.genes.radial_point_offset;
         }
+        // Radial points will be 1 greater than all_radii since we need a full looping connection to be able to
+        // calculate last_dist in stage_4
     }
 
     /// 
@@ -225,13 +228,11 @@ impl Webgen {
         let mut last_dist = (first_part.position - last_part.position).norm();
         let mut has_flipped = false;
         let mut just_flipped = false;
-        let base_size = self.radial_points.len() as i32 - 1;
+        let base_size = self.all_radii.len() as i32;
         // This is set to (cur point idx - 1) when we flip, then decremented by 1 for every new point
         let mut last_dist_particle_indx: i32 = 0;
-        let mut num_iters = 0;
         let mut sign = 1;
         loop {
-            num_iters += 1;
             if has_flipped {
                 last_dist_particle_indx += 1 * sign;
             }
@@ -241,12 +242,14 @@ impl Webgen {
             let i = self.radial_points[last_dist_particle_indx as usize];
             let last_particle_pos = self.web.particles[i].position;
             let dir = last_particle_pos.normalize();
-            let new_dir = last_dist * dir; // TODO add random offset
+            let new_dir = last_dist * dir;
             let new_dist = new_dir.norm() + thread_rng().gen_range(-self.genes.deviation_value..self.genes.deviation_value);
             let new_pos = last_particle_pos + new_dir;
 
-            let radii_pos = self.web.particles[self.all_radii[i % base_size as usize]].position;
+            let perimeter_particle = self.all_radii[i % base_size as usize];
+            let radii_pos = self.web.particles[perimeter_particle].position;
             if new_pos.norm() > radii_pos.norm() {
+                println!("Flipped because new_pos: {:?} at i: {} is greater than radii_pos: {:?} at i: {}", new_pos, i, radii_pos, i % base_size as usize);
                 if just_flipped {
                     break;
                 }
@@ -270,7 +273,6 @@ impl Webgen {
                 last_dist_particle_indx += 1;
             }
         }
-        println!("num iters: {}", num_iters);
     }
 
     pub fn realistic_web(&mut self) -> Spiderweb {

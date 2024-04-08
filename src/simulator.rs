@@ -25,6 +25,8 @@ pub struct Simulator {
     drag_coefficient: f64,
     pub wind_fn: fn(&Self, Vector3<f64>) -> Vector3<f64>,
     pub bugs: Vec<Particle>,
+    pub wind_strength: f64,
+    pub max_silk_strand_force: f64,
 }
 
 impl Simulator {
@@ -33,27 +35,27 @@ impl Simulator {
             web,
             timestep,
             sim_time: 0.0,
-            gravity: Vector3::new(0.0, -0.1, -0.1),
-            drag_coefficient: 0.47,
-            wind_fn: Self::loopy_wind,
+            gravity: Vector3::new(0.0, -1.0, 0.0),
+            drag_coefficient: 0.0,
+            wind_fn: Self::default_wind_fn,
             bugs: Vec::new(),
+            wind_strength: 0.05,
+            max_silk_strand_force: 10.0,
         }
     }
 
     /// Simple wind to blow the web around a bit depending on position and sins
     fn default_wind_fn(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
-        let wind_strength = 0.1;
         let wind_dir = Vector3::new(0.8 *(self.sim_time).sin(), 0.05 * (self.sim_time * 0.1).sin(), 0.1 * (self.sim_time * 0.3).sin());
-        wind_dir * (particle_pos.y * wind_strength)
+        wind_dir * (particle_pos.y * self.wind_strength)
         
     }
 
     /// Wind that blows in a loop, blowing greater when closer to the z-axis
     fn loopy_wind(&self, particle_pos: Vector3<f64>) -> Vector3<f64> {
-        let wind_strength = 0.001;
         let z_pos = particle_pos.z.max(0.1);
         let wind_dir = Vector3::new(particle_pos.y/z_pos, -particle_pos.x/z_pos, particle_pos.z/4.0);
-        wind_dir * wind_strength
+        wind_dir * self.wind_strength
     }
 
     pub fn add_bug(&mut self, position: Vector3<f64>, velocity: Vector3<f64>, mass: f64) {
@@ -68,7 +70,7 @@ impl Simulator {
         (new_position, new_velocity)
     }
 
-    fn update_particle(&self, particle: &Particle) -> (Vector3<f64>, Vector3<f64>) {
+    fn update_particle(&self, particle: &Particle, strands_to_remove: &mut Vec<(usize, usize)>) -> (Vector3<f64>, Vector3<f64>) {
         if particle.fixed {
             return (particle.position, particle.velocity);
         }
@@ -78,21 +80,25 @@ impl Simulator {
         // Drag
         total_force += particle.velocity * (-self.drag_coefficient);
 
-        for silk_strand in &self.web.strands {
-
-            let connected_particle = if self.web.particles[silk_strand.start] == *particle {
-                &self.web.particles[silk_strand.end]
+        for (i, silk_strand) in self.web.strands.iter().enumerate() {
+            let connected_particle_idx = if self.web.particles[silk_strand.start] == *particle {
+                silk_strand.end
             } else if self.web.particles[silk_strand.end] == *particle {
-                &self.web.particles[silk_strand.start]
+                silk_strand.start
             } else {
                 continue;
             };
+            let connected_particle = &self.web.particles[connected_particle_idx];
 
             let force = calculate_spring_force(
                 particle,
                 connected_particle,
                 silk_strand,
             );
+
+            if force.norm() > self.max_silk_strand_force {
+                strands_to_remove.push((i, connected_particle_idx));
+            }
             
             total_force += force;
         }
@@ -102,7 +108,7 @@ impl Simulator {
 
         let drag_force = particle.velocity * -self.drag_coefficient;
         total_force += drag_force;
-        
+
         self.calculate_verlet(particle, total_force)
     }
 
@@ -143,6 +149,7 @@ impl Simulator {
                 // A collision occurred
                 if distance <= bug_radius {
                     to_stick.push((bug_index, strand_index));
+                    continue;
                 }
             }
         }
@@ -151,8 +158,6 @@ impl Simulator {
         for (bug_index, strand_index) in to_stick.iter() {
             self.stick_to_web(*bug_index, *strand_index);
         }
-        // Need to reverse the list, otherwise we run into index issues
-        // (since we went front-to-back to find the bugs, we will go back-to-front to remove them)
         for (bug_index, _) in to_stick.iter().rev() {
             self.bugs.remove(*bug_index);
         }
@@ -166,8 +171,10 @@ impl Simulator {
         let mut new_velocities = vec![Vector3::zeros(); self.web.particles.len()];
         let mut new_bug_positions = vec![Vector3::zeros(); self.bugs.len()];
         let mut new_bug_velocities = vec![Vector3::zeros(); self.bugs.len()];
+        let mut strands_to_remove = Vec::new();
+
         for (i, particle) in self.web.particles.iter().enumerate() {
-            let (new_position, new_velocity) = self.update_particle(particle);
+            let (new_position, new_velocity) = self.update_particle(particle, &mut strands_to_remove);
             new_positions[i] = new_position;
             new_velocities[i] = new_velocity;
         }
@@ -191,6 +198,19 @@ impl Simulator {
             bug.position = new_bug_positions[i];
             bug.velocity = new_bug_velocities[i];
         }
+
+        // TODO: Properly handle strand breakages
+        // for (strand_index, conn_particle) in strands_to_remove {
+        //     let new_particle = self.web.particles[conn_particle].clone();
+        //     self.web.push_particle(new_particle);
+        //     let mut new_strand = self.web.strands[strand_index].clone();
+        //     if new_strand.start == conn_particle {
+        //         new_strand.start = self.web.particles.len() - 1;
+        //     } else {
+        //         new_strand.end = self.web.particles.len() - 1;
+        //     }
+        //     self.web.strands[strand_index] = new_strand;
+        // }
     }
 
     pub fn get_web(&mut self) -> &mut Spiderweb {

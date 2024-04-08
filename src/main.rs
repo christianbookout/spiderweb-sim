@@ -49,7 +49,7 @@ fn main() {
 
     let mut renderer = Renderer::new();
     let web = Webgen::new().realistic_web();
-    let timestep = 0.025;
+    let timestep = 0.01;
     let mut simulator = Simulator::new(timestep, web);
 
     renderer.init();
@@ -104,7 +104,7 @@ fn main() {
                     let particles = &simulator.get_web().particles;
                     let rand_pos = Vector3::new(rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0));
                     let rand_web_particle = particles[rnd.gen_range(0..particles.len())];
-                    let velocity = (rand_web_particle.position - rand_pos).normalize() * 0.1;
+                    let velocity = (rand_web_particle.position - rand_pos).normalize() * 1.0;
                     simulator.add_bug(rand_pos, velocity, 2.0);
                 }
                 // slider
