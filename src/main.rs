@@ -37,6 +37,15 @@ pub fn open_window(glfw: &mut glfw::Glfw) -> (Window, Receiver<(f64, glfw::Windo
 
 }
 
+fn add_bug(simulator: &mut Simulator) {
+    let mut rnd = rand::thread_rng();
+    let particles = &simulator.get_web().particles;
+    let rand_pos = Vector3::new(rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0));
+    let rand_web_particle = particles[rnd.gen_range(0..particles.len())];
+    let velocity = (rand_web_particle.position - rand_pos).normalize() * 1.0;
+    simulator.add_bug(rand_pos, velocity, 2.0);
+}
+
 fn main() {
     let mut glfw: glfw::Glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
     let (mut window, events) = open_window(&mut glfw);
@@ -100,18 +109,38 @@ fn main() {
                     simulator = Simulator::new(timestep, Webgen::new().realistic_web());
                 }
                 if ui.button(im_str!("Add Bug"), [100.0, 20.0]) {
-                    let mut rnd = rand::thread_rng();
-                    let particles = &simulator.get_web().particles;
-                    let rand_pos = Vector3::new(rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0), rnd.gen_range(-1.0..1.0));
-                    let rand_web_particle = particles[rnd.gen_range(0..particles.len())];
-                    let velocity = (rand_web_particle.position - rand_pos).normalize() * 1.0;
-                    simulator.add_bug(rand_pos, velocity, 2.0);
+                    add_bug(&mut simulator);
+                } if ui.button(im_str!("Test FPS"), [100.0, 20.0]) {
+                    let mut wtr = csv::Writer::from_path("fps_by_strands.csv").unwrap();
+                    wtr.write_record(&["Iteration", "Time", "Webgen Time", "Steps", "Strands"]).unwrap();
+                    for i in 0..100 {
+                        println!("Iteration {}", i);
+                        let mut webgen = Webgen::new();
+                        webgen.genes.deviation_value += 0.01;
+                        let webgen_time = std::time::Instant::now();
+                        let web = webgen.realistic_web();
+                        let actual_webgen_time = webgen_time.elapsed().as_millis();
+                        let strand_count = web.strands.len();
+                        let mut sim = Simulator::new(timestep, web);
+                        let step_count = 5;
+                        let cur_time = std::time::Instant::now();
+                        for _ in 0..step_count {
+                            sim.step();
+                        }
+                        wtr.write_record(&[
+                            i.to_string(), 
+                            cur_time.elapsed().as_millis().to_string(), 
+                            actual_webgen_time.to_string(), 
+                            step_count.to_string(), 
+                            strand_count.to_string()
+                        ]).unwrap();
+                    }
+                    wtr.flush().unwrap();
                 }
                 // slider
                 //ui.slider_float(im_str!("Wind Strength"), &mut simulator.wind_strength, 0.0, 0.1).build();
             });
         // TODO correct fps calculation
-        let actual_fps = 1.0 / ui.io().delta_time;
         imgui::Window::new(im_str!("Simulation Info"))
             .size(info_window_size, imgui::Condition::Always)
             .position(info_window_pos, imgui::Condition::Always)
@@ -121,13 +150,12 @@ fn main() {
                 ui.text(im_str!("Strands: {}", simulator.get_web().strands.len()));
                 ui.text(im_str!("Bugs: {}", simulator.bugs.len()));
                 ui.text(im_str!("Simulation Time: {}", simulator.sim_time));
-                ui.text(im_str!("FPS: {:.1}", actual_fps));
                 ui.text(im_str!("Zoom: {:.1}", renderer.zoom / 3.0));
             });
             
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            renderer.draw(&mut simulator, &window);
+           renderer.draw(&mut simulator, &window);
         }
 
         platform.prepare_render(&ui, &mut window);
