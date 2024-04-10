@@ -113,10 +113,13 @@ fn main() {
                 } if ui.button(im_str!("Test FPS"), [100.0, 20.0]) {
                     let mut wtr = csv::Writer::from_path("fps_by_strands.csv").unwrap();
                     wtr.write_record(&["Iteration", "Time", "Webgen Time", "Steps", "Strands"]).unwrap();
+                    let mut radial_point_offset = 0.0001;
                     for i in 0..100 {
                         println!("Iteration {}", i);
                         let mut webgen = Webgen::new();
-                        webgen.genes.deviation_value += 0.01;
+                        webgen.genes.radial_point_offset = radial_point_offset;
+                        webgen.genes.deviation_value = 0.001 + radial_point_offset;
+                        radial_point_offset += 0.0001;
                         let webgen_time = std::time::Instant::now();
                         let web = webgen.realistic_web();
                         let actual_webgen_time = webgen_time.elapsed().as_millis();
@@ -131,6 +134,33 @@ fn main() {
                             i.to_string(), 
                             cur_time.elapsed().as_millis().to_string(), 
                             actual_webgen_time.to_string(), 
+                            step_count.to_string(), 
+                            strand_count.to_string()
+                        ]).unwrap();
+                    }
+                    wtr.flush().unwrap();
+                } if ui.button(im_str!("Test Bugs"), [100.0, 20.0]) {
+                    let mut wtr = csv::Writer::from_path("fps_by_bugs.csv").unwrap();
+                    wtr.write_record(&["Iteration", "Time", "Bug Count", "Steps", "Strands"]).unwrap();
+                    for i in 0..50 {
+                        println!("Iteration {}", i);
+                        let bugs_per_iter = 25;
+                        let total_bugs = i * bugs_per_iter;
+                        let web = simulator.get_web().clone();
+                        let strand_count = web.strands.len();
+                        let mut sim = Simulator::new(timestep, web);
+                        let step_count = 5;
+                        for _ in 0..total_bugs {
+                            add_bug(&mut sim);
+                        }
+                        let cur_time = std::time::Instant::now();
+                        for _ in 0..step_count {
+                            sim.step();
+                        }
+                        wtr.write_record(&[
+                            i.to_string(),
+                            cur_time.elapsed().as_millis().to_string(), 
+                            total_bugs.to_string(),
                             step_count.to_string(), 
                             strand_count.to_string()
                         ]).unwrap();
@@ -155,7 +185,7 @@ fn main() {
             
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
-           renderer.draw(&mut simulator, &window);
+            renderer.draw(&mut simulator, &window);
         }
 
         platform.prepare_render(&ui, &mut window);

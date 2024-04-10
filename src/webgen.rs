@@ -17,7 +17,7 @@ use crate::web::{Particle, SilkStrand, Spiderweb, ParticleType};
 * Gene 10 - 
 * Gene 11 - 
 */
-const MASS : f64 = 10.0;
+const MASS : f64 = 1.0;
 const STIFFNESS : f64 = 1000.0;
 const DAMPING : f64 = 10.0;
 #[derive(Clone)]
@@ -50,7 +50,7 @@ impl Webgen {
         Webgen {
             web : Spiderweb::new(),
             genes : Genes {
-                num_first_radii: 10,
+                num_first_radii: 3,
                 phase_angle_offset: 60.0,
                 variability_factor: (-5.0, 5.0),
                 direction_biases: (0.1, 0.1, 0.1, 1.0),
@@ -253,6 +253,7 @@ impl Webgen {
                 //println!("Flipped because new_pos: {:?} at i: {} is greater than radii_pos: {:?} at i: {}", new_pos, i, radii_pos, i % base_size as usize);
                 sign *= -1;
                 just_flipped = true;
+                // last_dist = new_dist;
                 last_dist_particle_indx += sign;
                 continue;
             }

@@ -35,7 +35,7 @@ impl Simulator {
             web,
             timestep,
             sim_time: 0.0,
-            gravity: Vector3::new(0.0, -1.0, 0.0),
+            gravity: Vector3::new(0.0, -0.1, 0.0),
             drag_coefficient: 0.0,
             wind_fn: Self::default_wind_fn,
             bugs: Vec::new(),
