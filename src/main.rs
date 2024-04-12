@@ -19,7 +19,6 @@ pub fn open_window(glfw: &mut glfw::Glfw) -> (Window, Receiver<(f64, glfw::Windo
     // Set the OpenGL version to 3.3
     glfw.window_hint(glfw::WindowHint::ContextVersion(3, 3));
     glfw.window_hint(glfw::WindowHint::OpenGlProfile(glfw::OpenGlProfileHint::Core));
-    #[cfg(target_os = "macos")]
     glfw.window_hint(glfw::WindowHint::OpenGlForwardCompat(true));
 
     let (mut window, events) = glfw.create_window(800, 600, "Spiderweb Simulator", glfw::WindowMode::Windowed)
@@ -46,6 +45,65 @@ fn add_bug(simulator: &mut Simulator) {
     simulator.add_bug(rand_pos, velocity, 2.0);
 }
 
+fn fps_test(simulator: &Simulator) {
+    let mut wtr = csv::Writer::from_path("fps_by_strands.csv").unwrap();
+    wtr.write_record(&["Iteration", "Time", "Webgen Time", "Steps", "Strands"]).unwrap();
+    let mut radial_point_offset = 0.0001;
+    for i in 0..100 {
+        println!("Iteration {}", i);
+        let mut webgen = Webgen::new();
+        webgen.genes.radial_point_offset = radial_point_offset;
+        webgen.genes.deviation_value = 0.001 + radial_point_offset;
+        radial_point_offset += 0.0001;
+        let webgen_time = std::time::Instant::now();
+        let web = webgen.realistic_web();
+        let actual_webgen_time = webgen_time.elapsed().as_millis();
+        let strand_count = web.strands.len();
+        let mut sim = Simulator::new(simulator.timestep, web);
+        let step_count = 5;
+        let cur_time = std::time::Instant::now();
+        for _ in 0..step_count {
+            sim.step();
+        }
+        wtr.write_record(&[
+            i.to_string(), 
+            cur_time.elapsed().as_millis().to_string(), 
+            actual_webgen_time.to_string(), 
+            step_count.to_string(), 
+            strand_count.to_string()
+        ]).unwrap();
+    }
+    wtr.flush().unwrap();
+}
+
+fn fps_bug_test(simulator: &mut Simulator) {
+    let mut wtr = csv::Writer::from_path("fps_by_bugs.csv").unwrap();
+    wtr.write_record(&["Iteration", "Time", "Bug Count", "Steps", "Strands"]).unwrap();
+    for i in 0..50 {
+        println!("Iteration {}", i);
+        let bugs_per_iter = 25;
+        let total_bugs = i * bugs_per_iter;
+        let web = simulator.get_web().clone();
+        let strand_count = web.strands.len();
+        let mut sim = Simulator::new(simulator.timestep, web);
+        let step_count = 5;
+        for _ in 0..total_bugs {
+            add_bug(&mut sim);
+        }
+        let cur_time = std::time::Instant::now();
+        for _ in 0..step_count {
+            sim.step();
+        }
+        wtr.write_record(&[
+            i.to_string(),
+            cur_time.elapsed().as_millis().to_string(), 
+            total_bugs.to_string(),
+            step_count.to_string(), 
+            strand_count.to_string()
+        ]).unwrap();
+    }
+    wtr.flush().unwrap();
+}
 fn main() {
     let mut glfw: glfw::Glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
     let (mut window, events) = open_window(&mut glfw);
@@ -57,7 +115,8 @@ fn main() {
     let platform = imgui_glfw_support::GlfwPlatform::init(&mut imgui);
 
     let mut renderer = Renderer::new();
-    let web = Webgen::new().realistic_web();
+    let mut webgen = Webgen::new();
+    let web = webgen.realistic_web();
     let timestep = 0.01;
     let mut simulator = Simulator::new(timestep, web);
 
@@ -97,86 +156,84 @@ fn main() {
             (window_height as f32 - info_window_size[1]) - 10.0,
         ];
 
-        imgui::Window::new(im_str!("Simulation Controls"))
+        imgui::Window::new(im_str!("Web Simulation Controls"))
             .size(controls_window_size, imgui::Condition::Always)
             .position(controls_window_pos, imgui::Condition::Always)
             .build(&ui, || {
-
+                // imgui uses labels on their UI elements to identify them, thus
+                // they all need to be unique. However, their label placements look
+                // pretty bad (to the right of the input box), so I just put a text
+                // element above them as the label, and the label as a unique amount
+                // of spaces to the right of the text element (invisible space)
+                ui.text(im_str!("### Simulation Controls ###\n"));
                 ui.checkbox(im_str!("Simulation Running"), &mut started);
-
                 if ui.button(im_str!("Reset"), [100.0, 20.0]) {
                     started = false;
-                    simulator = Simulator::new(timestep, Webgen::new().realistic_web());
+                    simulator = Simulator::new(timestep, webgen.realistic_web());
                 }
                 if ui.button(im_str!("Add Bug"), [100.0, 20.0]) {
                     add_bug(&mut simulator);
-                } if ui.button(im_str!("Test FPS"), [100.0, 20.0]) {
-                    let mut wtr = csv::Writer::from_path("fps_by_strands.csv").unwrap();
-                    wtr.write_record(&["Iteration", "Time", "Webgen Time", "Steps", "Strands"]).unwrap();
-                    let mut radial_point_offset = 0.0001;
-                    for i in 0..100 {
-                        println!("Iteration {}", i);
-                        let mut webgen = Webgen::new();
-                        webgen.genes.radial_point_offset = radial_point_offset;
-                        webgen.genes.deviation_value = 0.001 + radial_point_offset;
-                        radial_point_offset += 0.0001;
-                        let webgen_time = std::time::Instant::now();
-                        let web = webgen.realistic_web();
-                        let actual_webgen_time = webgen_time.elapsed().as_millis();
-                        let strand_count = web.strands.len();
-                        let mut sim = Simulator::new(timestep, web);
-                        let step_count = 5;
-                        let cur_time = std::time::Instant::now();
-                        for _ in 0..step_count {
-                            sim.step();
-                        }
-                        wtr.write_record(&[
-                            i.to_string(), 
-                            cur_time.elapsed().as_millis().to_string(), 
-                            actual_webgen_time.to_string(), 
-                            step_count.to_string(), 
-                            strand_count.to_string()
-                        ]).unwrap();
-                    }
-                    wtr.flush().unwrap();
-                } if ui.button(im_str!("Test Bugs"), [100.0, 20.0]) {
-                    let mut wtr = csv::Writer::from_path("fps_by_bugs.csv").unwrap();
-                    wtr.write_record(&["Iteration", "Time", "Bug Count", "Steps", "Strands"]).unwrap();
-                    for i in 0..50 {
-                        println!("Iteration {}", i);
-                        let bugs_per_iter = 25;
-                        let total_bugs = i * bugs_per_iter;
-                        let web = simulator.get_web().clone();
-                        let strand_count = web.strands.len();
-                        let mut sim = Simulator::new(timestep, web);
-                        let step_count = 5;
-                        for _ in 0..total_bugs {
-                            add_bug(&mut sim);
-                        }
-                        let cur_time = std::time::Instant::now();
-                        for _ in 0..step_count {
-                            sim.step();
-                        }
-                        wtr.write_record(&[
-                            i.to_string(),
-                            cur_time.elapsed().as_millis().to_string(), 
-                            total_bugs.to_string(),
-                            step_count.to_string(), 
-                            strand_count.to_string()
-                        ]).unwrap();
-                    }
-                    wtr.flush().unwrap();
                 }
-                // slider
-                //ui.slider_float(im_str!("Wind Strength"), &mut simulator.wind_strength, 0.0, 0.1).build();
+
+                ui.text(im_str!("\n## Simulation Parameters ##\n"));
+                // Gravity
+                let mut gravity = simulator.gravity.y as f32;
+                ui.text(im_str!("Gravity"));
+                ui.input_float(im_str!(" "), &mut gravity).build();
+                simulator.gravity.y = gravity as f64;
+
+                // Wind Strength
+                let mut wind_strength = simulator.wind_strength as f32;
+                ui.text(im_str!("Wind Strength"));
+                ui.input_float(im_str!("  "), &mut wind_strength).build();
+                simulator.wind_strength = wind_strength as f64;
+
+                // Drag Coefficient
+                let mut drag_coefficient = simulator.drag_coefficient as f32;
+                ui.text(im_str!("Drag Coefficient"));
+                ui.input_float(im_str!("   "), &mut drag_coefficient).build();
+                simulator.drag_coefficient = drag_coefficient as f64;
+
+                ui.text(im_str!("\n##### Web Generation ######\n"));
+
+                let mut stiffness = webgen.stiffness as f32;
+                ui.text(im_str!("Stiffness"));
+                ui.input_float(im_str!("    "), &mut stiffness).build();
+                webgen.stiffness = stiffness as f64;
+
+                let mut damping = webgen.damping as f32;
+                ui.text(im_str!("Damping"));
+                ui.input_float(im_str!("     "), &mut damping).build();
+                webgen.damping = damping as f64;
+
+                let mut mass = webgen.mass as f32;
+                ui.text(im_str!("Mass"));
+                ui.input_float(im_str!("      "), &mut mass).build();
+                webgen.mass = mass as f64;
+
+                let mut radial_point_offset = webgen.genes.radial_point_offset as f32;
+                ui.text(im_str!("Radial Spacing"));
+                ui.input_float(im_str!("       "), &mut radial_point_offset).build();
+                webgen.genes.radial_point_offset = radial_point_offset as f64;
+
+                let mut num_first_radii = webgen.genes.num_first_radii as i32;
+                ui.text(im_str!("First Radii Count"));
+                ui.input_int(im_str!("        "), &mut num_first_radii).build();
+                webgen.genes.num_first_radii = num_first_radii as usize;
+
+                ui.text(im_str!("\n### Performance Testing ###"));
+                if ui.button(im_str!("Test FPS"), [100.0, 20.0]) {
+                    fps_test(&simulator);
+                } 
+                if ui.button(im_str!("Test Bugs"), [100.0, 20.0]) {
+                    fps_bug_test(&mut simulator);
+                }
             });
-        // TODO correct fps calculation
         imgui::Window::new(im_str!("Simulation Info"))
             .size(info_window_size, imgui::Condition::Always)
             .position(info_window_pos, imgui::Condition::Always)
             .build(&ui, || {
                 ui.text(im_str!("Timestep: {}", timestep));
-                ui.text(im_str!("Particles: {}", simulator.get_web().particles.len()));
                 ui.text(im_str!("Strands: {}", simulator.get_web().strands.len()));
                 ui.text(im_str!("Bugs: {}", simulator.bugs.len()));
                 ui.text(im_str!("Simulation Time: {}", simulator.sim_time));
