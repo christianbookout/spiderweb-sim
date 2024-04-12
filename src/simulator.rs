@@ -19,10 +19,10 @@ fn calculate_spring_force(
 
 pub struct Simulator {
     web: Spiderweb,
-    timestep: f64,
+    pub timestep: f64,
     pub sim_time: f64,
-    gravity: Vector3<f64>,
-    drag_coefficient: f64,
+    pub gravity: Vector3<f64>,
+    pub drag_coefficient: f64,
     pub wind_fn: fn(&Self, Vector3<f64>) -> Vector3<f64>,
     pub bugs: Vec<Particle>,
     pub wind_strength: f64,
@@ -36,7 +36,7 @@ impl Simulator {
             timestep,
             sim_time: 0.0,
             gravity: Vector3::new(0.0, -0.1, 0.0),
-            drag_coefficient: 0.0,
+            drag_coefficient: 0.5,
             wind_fn: Self::default_wind_fn,
             bugs: Vec::new(),
             wind_strength: 0.05,
@@ -122,7 +122,9 @@ impl Simulator {
 
     fn detect_collisions(&mut self) {
         let bug_radius = 0.03;
-        let mut to_stick = Vec::new();
+        let mut bug_idx = 0;
+        let mut strand_idx = 0;
+        let mut has_stuck = false;
 
         for (bug_index, bug) in self.bugs.iter().enumerate() {
             for (strand_index, strand) in self.web.strands.iter().enumerate() {
@@ -148,18 +150,18 @@ impl Simulator {
                 let distance = (closest_point - bug.position).norm();
                 // A collision occurred
                 if distance <= bug_radius {
-                    to_stick.push((bug_index, strand_index));
-                    continue;
+                    has_stuck = true;
+                    bug_idx = bug_index;
+                    strand_idx = strand_index;
+                    break;
                 }
             }
         }
 
         // Stick bugs to web for each detected collision
-        for (bug_index, strand_index) in to_stick.iter() {
-            self.stick_to_web(*bug_index, *strand_index);
-        }
-        for (bug_index, _) in to_stick.iter().rev() {
-            self.bugs.remove(*bug_index);
+        if has_stuck {
+            self.stick_to_web(bug_idx, strand_idx);
+            self.bugs.remove(bug_idx);
         }
     }
 
