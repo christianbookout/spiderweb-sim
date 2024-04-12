@@ -17,9 +17,6 @@ use crate::web::{Particle, SilkStrand, Spiderweb, ParticleType};
 * Gene 10 - 
 * Gene 11 - 
 */
-const MASS : f64 = 1.0;
-const STIFFNESS : f64 = 1000.0;
-const DAMPING : f64 = 10.0;
 #[derive(Clone)]
 pub struct Genes {
     pub num_first_radii: usize,
@@ -43,6 +40,9 @@ pub struct Webgen {
     all_radii : Vec<usize>,
     /// A list of all radial (capture) points from the center to the end
     radial_points : Vec<usize>,
+    pub mass : f64,
+    pub stiffness : f64,
+    pub damping : f64,
 }
 
 impl Webgen {
@@ -64,10 +64,13 @@ impl Webgen {
             base_radii : Vec::new(),
             all_radii : Vec::new(),
             radial_points : Vec::new(),
+            mass : 1.0,
+            stiffness : 1000.0,
+            damping : 10.0,
         }
     }
     fn new_particle(&mut self, pos : Vector3<f64>) -> usize {
-        let new_particle = Particle::new(pos, Vector3::zeros(), MASS, false, ParticleType::Silk);
+        let new_particle = Particle::new(pos, Vector3::zeros(), self.mass, false, ParticleType::Silk);
         self.web.push_particle(new_particle);
         self.web.particles.len() - 1
     }
@@ -78,7 +81,7 @@ impl Webgen {
 
     fn new_strand(&mut self, a : usize, b : usize) -> usize {
         let len = self.get_len(a, b);
-        let strand = SilkStrand::new(a, b, len, STIFFNESS, DAMPING);
+        let strand = SilkStrand::new(a, b, len, self.stiffness, self.damping);
         self.web.push_strand(strand);
         self.web.strands.len() - 1
     }
@@ -129,7 +132,7 @@ impl Webgen {
             let pos = Vector3::new(x, y, 0.0);
             let particle = self.new_particle(pos);
             let len = self.get_len(center, particle);
-            let strand = SilkStrand::new(center, particle, len, STIFFNESS, DAMPING);
+            let strand = SilkStrand::new(center, particle, len, self.stiffness, self.damping);
             self.web.push_strand(strand);
             self.base_radii.push(particle);
             if i > 0 {
@@ -163,7 +166,7 @@ impl Webgen {
             let angle_to_next = cur_angle + angle_between_points;
             let start_angle = cur_angle;
             // Ensure there aren't too many particles (number is arbitrary)
-            for _ in 0..1000 {
+            for _ in 0..10000 {
                 let normalized_angle = cur_angle % 360.0;
                 let quadrant_size = 90.0;
                 let quadrant = (normalized_angle / quadrant_size).floor() as usize;
@@ -187,7 +190,7 @@ impl Webgen {
                 let particle = self.new_particle(new_pos);
                 self.all_radii.push(particle);
                 let len = self.get_len(0, particle);
-                let strand = SilkStrand::new(0, particle, len, STIFFNESS, DAMPING);
+                let strand = SilkStrand::new(0, particle, len, self.stiffness, self.damping);
 
                 let closest_strand = self.web.get_closest_strand(new_pos);
                 self.web.insert_particle_into_web(self.web.particles[particle], closest_strand, true);
@@ -226,7 +229,6 @@ impl Webgen {
         let first_part = self.web.particles[self.radial_points[0]];
         let last_part = self.web.particles[self.radial_points[self.radial_points.len() - 1]];
         let mut last_dist = (first_part.position - last_part.position).norm();
-        let mut has_flipped = false;
         let mut just_flipped = false;
         let base_size = self.all_radii.len() as i32;
         // This is set to (cur point idx - 1) when we flip, then decremented by 1 for every new point
@@ -247,13 +249,10 @@ impl Webgen {
             let radii_pos = self.web.particles[perimeter_particle].position;
             if new_pos.norm() > radii_pos.norm() {
                 if just_flipped {
-                    //println!("Flipped twice, breaking");
                     break;
                 }
-                //println!("Flipped because new_pos: {:?} at i: {} is greater than radii_pos: {:?} at i: {}", new_pos, i, radii_pos, i % base_size as usize);
                 sign *= -1;
                 just_flipped = true;
-                // last_dist = new_dist;
                 last_dist_particle_indx += sign;
                 continue;
             }
@@ -273,6 +272,9 @@ impl Webgen {
 
     pub fn realistic_web(&mut self) -> Spiderweb {
         self.web = Spiderweb::new();
+        self.base_radii = Vec::new();
+        self.all_radii = Vec::new();
+        self.radial_points = Vec::new();
         self.stage_1();
         self.stage_2();
         self.stage_3();
