@@ -103,7 +103,6 @@ impl Renderer {
                 unsafe {
                     gl::GetFloatv(gl::LINE_WIDTH_RANGE, range.as_mut_ptr());
                 }
-                println!("Supported line width range: {} to {}", range[0], range[1]);
             },
             Err(e) => {
                 eprintln!("Shader program creation failed: {}", e);
