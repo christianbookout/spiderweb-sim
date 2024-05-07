@@ -1,3 +1,10 @@
+# Spiderweb Simulator
+
+This spiderweb simulator was developed as the final project for CSC 473: Computer Animation at UVic. The project's ideation, development, and testing were all performed by myself.
+
+The results of this simulation are summarized in [this paper.](https://github.com/christianbookout/spiderweb-sim/files/15238983/SpiderwebSimFinalPaper.pdf) 
+
+Note that the paper was not presented or made to present at SIGGRAPH. The formatting including volume, number, guest editors, copyright, etc. do not pertain to the project, but were a requirement to include for the paper's final submission and thus should be ignored. 
 
 # Instructions
 
