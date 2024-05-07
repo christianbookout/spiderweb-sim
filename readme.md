@@ -1,6 +1,6 @@
 # Spiderweb Simulator
 
-This spiderweb simulator was developed as the final project for CSC 473: Computer Animation at UVic. The project's ideation, development, and testing were all performed by myself.
+This spiderweb simulator was developed as the final project for CSC 473: Fundamentals of Computer Animation at UVic. The project's ideation, development, and testing were all performed by myself.
 
 The results of this simulation are summarized in [this paper.](https://github.com/christianbookout/spiderweb-sim/files/15238983/SpiderwebSimFinalPaper.pdf) 
 
